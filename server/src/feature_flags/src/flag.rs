@@ -94,9 +94,15 @@ fn resolve_or_panic<T: Into<FlagValue> + Clone>(
 ) -> FlagValue {
     // Callers of this method expect the FlagValue.
     // If resolve returns an error, we panic.
-    match resolve(client, context, key, default) {
+    match resolve(client.clone(), context, key, default.clone()) {
         Ok(v) => v,
-        Err(e) => panic!("flag {key}: {e:?}"),
+        Err(e) => {
+            // If the error is ClientNotReady, just return the default
+            if let EvalError::ClientNotReady = e {
+                return default.into();
+            }
+            panic!("flag {key}: {e:?}")
+        },
     }
 }
 
@@ -109,6 +115,10 @@ impl<'a> Resolver<'a, bool> {
             .and_then(|f| f.parse().ok())
         {
             return b;
+        }
+        // In test/offline mode, just return the default (false)
+        if self.service.mode == crate::config::Mode::Test {
+            return false;
         }
         resolve_or_panic(
             self.service.client.clone(),

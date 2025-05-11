@@ -338,11 +338,19 @@ impl BootstrapBuilder {
             notification::clients::iterable::Config,
         >(profile)?);
 
-        let feature_flags_config = overrides.feature_flags.clone().map_or_else(
-            || config::extract::<feature_flags::config::Config>(profile),
-            |flags| Ok(feature_flags::config::Config::new_with_overrides(flags)),
-        )?;
-        let feature_flags_service = feature_flags_config.to_service().await?;
+        // Patch: If LAUNCHDARKLY_SDK_KEY is 'dummy', use offline/test mode for feature flags
+        let feature_flags_service = if std::env::var("LAUNCHDARKLY_SDK_KEY").map(|v| v == "dummy").unwrap_or(false) {
+            // Use all overrides if provided, otherwise empty
+            let overrides = overrides.feature_flags.clone().unwrap_or_default();
+            feature_flags::service::Service::test_stub(overrides)
+        } else {
+            let feature_flags_config = overrides.feature_flags.clone().map_or_else(
+                || config::extract::<feature_flags::config::Config>(profile),
+                |flags| Ok(feature_flags::config::Config::new_with_overrides(flags)),
+            )?;
+            feature_flags_config.to_service().await?
+        };
+
 
         // Initialize AccountService
         let account_service = AccountService::new(

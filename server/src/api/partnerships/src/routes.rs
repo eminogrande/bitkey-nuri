@@ -361,9 +361,7 @@ pub struct GetPartnerTransactionResponse {
     ),
 )]
 async fn get_partner_transaction(
-    State(partnerships): State<Partnerships>,
-    request: Path<GetPartnerTransactionRequest>,
-    query: Query<GetPartnerTransactionQuery>,
+    (State(partnerships), request, query): (State<Partnerships>, Path<GetPartnerTransactionRequest>, Query<GetPartnerTransactionQuery>),
 ) -> Result<Json<GetPartnerTransactionResponse>, ApiError> {
     let transaction_type = query.transaction_type.unwrap_or(TransactionType::Purchase);
     let partner_transaction = partnerships
@@ -389,8 +387,7 @@ pub struct GetPartnerRequest {
     ),
 )]
 async fn get_partner(
-    State(partnerships): State<Partnerships>,
-    request: Path<GetPartnerRequest>,
+    (State(partnerships), request): (State<Partnerships>, Path<GetPartnerRequest>),
 ) -> Result<Json<PartnerInfo>, ApiError> {
     let partner_info = partnerships.get_partner(request.partner).await?;
     Ok(Json(partner_info))
@@ -422,9 +419,7 @@ pub struct ListSaleQuotesResponse {
     ),
 )]
 async fn list_sale_quotes(
-    State(partnerships): State<Partnerships>,
-    experimentation_claims: ExperimentationClaims,
-    Json(request): Json<ListSaleQuotesRequest>,
+    (State(partnerships), experimentation_claims, Json(request)): (State<Partnerships>, ExperimentationClaims, Json<ListSaleQuotesRequest>),
 ) -> Result<Json<ListSaleQuotesResponse>, ApiError> {
     let quotes = partnerships
         .sale_quote(
@@ -460,8 +455,7 @@ pub struct GetSaleRedirectRequest {
     ),
 )]
 async fn get_sales_redirect(
-    State(partnerships): State<Partnerships>,
-    Json(request): Json<GetSaleRedirectRequest>,
+    (State(partnerships), Json(request)): (State<Partnerships>, Json<GetSaleRedirectRequest>),
 ) -> Result<Json<GetRedirectResponse>, ApiError> {
     let redirect_info = partnerships
         .sale_redirect_url(

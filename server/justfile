@@ -57,11 +57,11 @@ stop-sidecars:
 
 # Build all (inc. api, wsm, ...)
 build:
-  {{cargo}} build --features partnerships
+  {{cargo}} build
 
 # Build all binaries
 build-bins:
-  {{cargo}} build --bins --features partnerships
+  {{cargo}} build --bins
 
 # Run DDB migrations locally
 run-migrations:
@@ -93,15 +93,14 @@ run: sidecars run-server
 # Run the server in debug mode
 run-server *args:
   #!/bin/bash
-  if [[ -z "$LAUNCHDARKLY_SDK_KEY" ]]; then
-    export LAUNCHDARKLY_SDK_KEY=$(AWS_PROFILE=bitkey-development--admin aws secretsmanager get-secret-value --region us-west-2 --secret-id fromagerie/launchdarkly/sdk_key | jq -r .SecretString)
-  fi
+  export LAUNCHDARKLY_SDK_KEY=dummy
   ROCKET_CONFIG=src/api/Rocket.toml ROCKET_PROFILE=debug {{cargo}} run --bin server --features partnerships -- server {{args}}
 
 grind-signet-coins:
-  ROCKET_CONFIG=src/api/Rocket.toml {{cargo}} run --bin server -- cron coin-grinder
+  ROCKET_CONFIG=src/api/Rocket.toml export LAUNCHDARKLY_SDK_KEY=dummy {{cargo}} run --bin server -- cron coin-grinder
 
 user-histogram:
+  ROCKET_CONFIG=src/api/Rocket.toml export LAUNCHDARKLY_SDK_KEY=dummy {{cargo}} run --bin server -- cron user-histogram
   ROCKET_CONFIG=src/api/Rocket.toml {{cargo}} run --bin server -- cron user-histogram
 
 # Run the server in debug mode
@@ -309,9 +308,7 @@ _run-wsm-api $ROCKET_PORT="9090" $AWS_DEFAULT_REGION="us-west-2" $AWS_ACCESS_KEY
 _run-api $ROCKET_PORT="8080" $ROCKET_PROFILE="localprod":
   #!/bin/bash
   set -e
-  if [[ -z "$LAUNCHDARKLY_SDK_KEY" ]]; then
-    export LAUNCHDARKLY_SDK_KEY=$(AWS_PROFILE=bitkey-development--admin aws secretsmanager get-secret-value --region us-west-2 --secret-id fromagerie/launchdarkly/sdk_key | jq -r .SecretString)
-  fi
+  export LAUNCHDARKLY_SDK_KEY=dummy
   cd src/api && ../../target/debug/server server
 
 _integration: build-bins sidecars

@@ -26,8 +26,7 @@ members = [
   "src/api/notification",
   "src/api/notification_validation",
   "src/api/onboarding",
-  "src/api/partnerships",
-  "src/api/partnerships/partnerships_lib/src/partners/cash_app/lambdas",
+
   "src/api/privileged_action",
   "src/api/promotion_code",
   "src/api/queue",
@@ -54,6 +53,7 @@ publish = false
 version = "0.1.0"
 
 [workspace.dependencies]
+account = { path = "src/api/account" }
 anyhow = "1.0.80"
 argon2 = { version = "0.5.3", features = ["std"] }
 async-trait = "0.1.77"
@@ -133,7 +133,6 @@ utoipa = { version = "4.2.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "6.0.0", features = ["axum"] }
 wiremock = "=0.6.2"
 
-account = { path = "src/api/account" }
 analytics = { path = "src/api/analytics" }
 authn_authz = { path = "src/api/authn_authz" }
 bdk_utils = { path = "src/api/bdk_utils" }

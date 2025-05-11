@@ -21,7 +21,6 @@ experimentation = { workspace = true }
 external_identifier = { workspace = true }
 feature_flags = { workspace = true }
 jwt-authorizer = { workspace = true }
-partnerships-lib = { path = "partnerships_lib" }
 types = { workspace = true, features = ["account"] }
 userpool = { workspace = true }
 
