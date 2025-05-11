@@ -1,3 +1,5 @@
+set shell := ["bash", "-c"]
+
 export RUST_LOG := "info"
 export ROCKET_PROFILE := "test"
 
@@ -5,7 +7,7 @@ alias b := build
 alias t := test
 alias r := run
 
-cargo := "cargo --locked"
+cargo := "cargo"
 
 [private]
 default:
@@ -40,16 +42,20 @@ wsm-enclave-eif:
            (cat /var/log/nitro_enclaves/*.log && exit 1)"
   @echo Image created at $PWD/src/wsm/build/wsm-enclave.eif
 
-# Start sidecars (inc. dynamodb, jaeger, mysql, ...) in background
+# Start sidecars (dynamodb-local, jaeger, bitcoind, etc.)
 sidecars:
-  export BITCOIND_RPC_USER="test"
-  export BITCOIND_RPC_PASSWORD="test"
-  export BITCOIND_RPC_WALLET_NAME="testwallet"
-  docker compose -f docker-compose-sidecars.yml up --wait
-  src/wsm/scripts/setup_wsm_local_ddb.sh
-  curl -X DELETE -s -o /dev/null http://localhost:8001/tables-purge
-
-  just _setup-treasury
+    @echo "Attempting to activate Hermit environment within just recipe..." && \
+    source ../bin/activate-hermit && \
+    echo "--- DEBUG (after attempting source): PATH is: $PATH" && \
+    echo "--- DEBUG (after attempting source): which aws is: $(which aws || echo 'aws not found')" && \
+    echo "--- DEBUG (after attempting source): which goreman is: $(which goreman || echo 'goreman not found')" && \
+    export BITCOIND_RPC_USER="test" && \
+    export BITCOIND_RPC_PASSWORD="test" && \
+    export BITCOIND_RPC_WALLET_NAME="testwallet" && \
+    docker compose -f docker-compose-sidecars.yml up --wait && \
+    src/wsm/scripts/setup_wsm_local_ddb.sh && \
+    curl -X DELETE -s -o /dev/null http://localhost:8001/tables-purge && \
+    just _setup-treasury
 
 # Stop sidecars
 stop-sidecars:
@@ -57,11 +63,11 @@ stop-sidecars:
 
 # Build all (inc. api, wsm, ...)
 build:
-  {{cargo}} build --features partnerships
+  source ../bin/activate-hermit && {{cargo}} build --features partnerships
 
 # Build all binaries
 build-bins:
-  {{cargo}} build --bins --features partnerships
+  source ../bin/activate-hermit && {{cargo}} build --bins
 
 # Run DDB migrations locally
 run-migrations:
@@ -152,7 +158,27 @@ vscode:
 
 # Run the entire integrated server cluster (inc. api, wsm, ...)
 run-integration: _integration
-  goreman start
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "Attempting to activate Hermit for run-integration..."
+    source ../bin/activate-hermit
+
+    echo "--- DEBUG (run-integration): PATH is: $PATH"
+    echo "--- DEBUG (run-integration): which goreman is: $(which goreman || echo 'goreman not found')"
+    echo "--- DEBUG (run-integration): ROCKET_PROFILE is: '${ROCKET_PROFILE:-not set}'"
+
+    # Kill lingering binaries and free ports
+    pkill -f "wsm-enclave" || true
+    pkill -f "wsm-api" || true
+    pkill -f "server server" || true
+    for p in 5000 5100 5200 7446 8080 9090; do
+        lsof -ti tcp:$p | xargs kill -9 || true
+    done
+
+    echo "--- INFO: Clean workspace; starting goreman"
+    export LAUNCHDARKLY_SDK_KEY="dummy-sdk-key-for-local-dev"
+    goreman start
 
 # Start the integrated server cluster (inc. api, wsm, ...) in background
 start-integration: _integration
@@ -300,18 +326,39 @@ get-regtest-funds address amount:
   @echo
   @echo sent {{ amount }} BTC to {{ address }}
 
-_run-wsm-enclave $ROCKET_ADDRESS="localhost" $ROCKET_PORT="7446":
-  cd src/wsm && ../../target/debug/wsm-enclave
+_run-wsm-enclave:
+  cd src/wsm && ROCKET_ADDRESS=0.0.0.0 ROCKET_PORT=7446 ../../target/debug/wsm-enclave
 
-_run-wsm-api $ROCKET_PORT="9090" $AWS_DEFAULT_REGION="us-west-2" $AWS_ACCESS_KEY_ID="fakeKeyId" $AWS_SECRET_ACCESS_KEY="fakeSecretAccessKey":
-  cd src/wsm && ../../target/debug/wsm-api
+_run-wsm-api $AWS_DEFAULT_REGION="us-west-2" $AWS_ACCESS_KEY_ID="fakeKeyId" $AWS_SECRET_ACCESS_KEY="fakeSecretAccessKey":
+  cd src/wsm && ROCKET_PORT=9090 ../../target/debug/wsm-api
 
-_run-api $ROCKET_PORT="8080" $ROCKET_PROFILE="localprod":
+_run-api $ROCKET_PORT="8080" $ROCKET_PROFILE="test":
   #!/bin/bash
   set -e
   if [[ -z "$LAUNCHDARKLY_SDK_KEY" ]]; then
     export LAUNCHDARKLY_SDK_KEY=$(AWS_PROFILE=bitkey-development--admin aws secretsmanager get-secret-value --region us-west-2 --secret-id fromagerie/launchdarkly/sdk_key | jq -r .SecretString)
   fi
-  cd src/api && ../../target/debug/server server
+  cd src/api && ROCKET_PORT=8080 ../../target/debug/server server
+
+_run-goreman:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ./bin/activate-hermit
+    echo "--- DEBUG (run-integration): PATH is: $PATH"
+    echo "--- DEBUG (run-integration): ROCKET_PROFILE is: '${ROCKET_PROFILE:-not set}'"
+    echo "--- DEBUG (run-integration): which goreman is: $(which goreman)"
+    pkill -f "wsm-enclave" || true
+    pkill -f "wsm-api" || true
+    pkill -f "server server" || true
+    echo "--- INFO: Attempting to kill processes on ports 5000, 5100, 5200, 7446, 9090"
+    lsof -ti tcp:5000 | xargs kill -9 || true
+    lsof -ti tcp:5100 | xargs kill -9 || true
+    lsof -ti tcp:5200 | xargs kill -9 || true
+    lsof -ti tcp:7446 | xargs kill -9 || true
+    lsof -ti tcp:9090 | xargs kill -9 || true
+    lsof -ti tcp:8080 | xargs kill -9 || true
+    echo "--- INFO: Port cleanup attempt finished"
+    export LAUNCHDARKLY_SDK_KEY="dummy-sdk-key-for-local-dev"
+    goreman -set-ports=false -exit-on-error=true start
 
 _integration: build-bins sidecars
