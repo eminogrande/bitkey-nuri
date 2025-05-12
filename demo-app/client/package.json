@@ -1,0 +1,15 @@
+{
+  "name": "fido2-demo-client",
+  "version": "1.0.0",
+  "description": "Demo client for FIDO2 authentication",
+  "type": "module",
+  "scripts": {
+    "start": "parcel index.html --port 8080"
+  },
+  "dependencies": {
+    "@simplewebauthn/browser": "^7.4.0"
+  },
+  "devDependencies": {
+    "parcel": "^2.9.3"
+  }
+}
