@@ -5,18 +5,22 @@ const { generateRegistrationOptions, verifyRegistrationResponse, generateAuthent
 const crypto = require('crypto');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(bodyParser.json());
 
 const users = new Map();
 const authenticatorsByUserId = new Map();
 const challengesByUserId = new Map();
 
-const rpID = 'localhost';
+const rpID = process.env.RP_ID || 'localhost';
 const rpName = 'Bitkey FIDO2 Demo';
-const origin = 'http://localhost:8080';
+const origin = process.env.ORIGIN || 'http://localhost:8080';
 
 function generateRandomId() {
   return crypto.randomBytes(16).toString('hex');
@@ -200,6 +204,10 @@ app.get('/api/users', (req, res) => {
   res.json(userList);
 });
 
-app.listen(port, () => {
-  console.log(`FIDO2 demo server running at http://localhost:${port}`);
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'FIDO2 Demo Server is running' });
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`FIDO2 demo server running on port ${port}`);
 });

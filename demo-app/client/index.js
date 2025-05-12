@@ -1,6 +1,8 @@
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 
-const API_URL = 'http://localhost:3000';
+const API_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3000' 
+  : 'https://fido2-demo-server.fly.dev';
 const REGISTER_START_URL = `${API_URL}/api/register/start`;
 const REGISTER_COMPLETE_URL = `${API_URL}/api/register/complete`;
 const AUTH_START_URL = `${API_URL}/api/authenticate/start`;
