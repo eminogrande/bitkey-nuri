@@ -62,7 +62,19 @@ pub struct FetchAccountInput<'a> {
 
 #[derive(Debug, Clone)]
 pub struct FetchAccountByAuthKeyInput {
-    pub pubkey: PublicKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pubkey: Option<PublicKey>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub credential_id: String,
+}
+
+impl Default for FetchAccountByAuthKeyInput {
+    fn default() -> Self {
+        Self {
+            pubkey: None,
+            credential_id: String::new(),
+        }
+    }
 }
 
 #[derive(Clone)]

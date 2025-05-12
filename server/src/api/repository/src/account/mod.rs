@@ -15,10 +15,12 @@ pub(crate) const PARTITION_KEY: &str = "partition_key";
 pub(crate) const APPLICATION_TO_ACCOUNT_IDX: &str = "application_pubkey_to_account";
 
 pub(crate) const HW_TO_ACCOUNT_IDX: &str = "hw_pubkey_to_account";
+pub(crate) const FIDO2_TO_ACCOUNT_IDX: &str = "fido2_credential_to_account";
 pub(crate) const RECOVERY_AUTHKEY_TO_ACCOUNT_IDX: &str = "recovery_pubkey_to_account";
 pub(crate) const APPLICATION_IDX_PARTITION_KEY: &str = "application_auth_pubkey";
 
 pub(crate) const HW_IDX_PARTITION_KEY: &str = "hardware_auth_pubkey";
+pub(crate) const FIDO2_IDX_PARTITION_KEY: &str = "fido2_credential_id";
 pub(crate) const RECOVERY_AUTHKEY_IDX_PARTITION_KEY: &str = "recovery_auth_pubkey";
 
 #[derive(Clone)]
@@ -58,6 +60,19 @@ impl Repository for AccountRepository {
                 name: HW_TO_ACCOUNT_IDX.to_string(),
                 pk: TableKey {
                     name: HW_IDX_PARTITION_KEY.to_string(),
+                    key_type: KeyType::Hash,
+                    attribute_type: ScalarAttributeType::S,
+                },
+                sk: Some(TableKey {
+                    name: PARTITION_KEY.to_string(),
+                    key_type: KeyType::Range,
+                    attribute_type: ScalarAttributeType::S,
+                }),
+            },
+            GlobalSecondaryIndexDef {
+                name: FIDO2_TO_ACCOUNT_IDX.to_string(),
+                pk: TableKey {
+                    name: FIDO2_IDX_PARTITION_KEY.to_string(),
                     key_type: KeyType::Hash,
                     attribute_type: ScalarAttributeType::S,
                 },

@@ -2,13 +2,22 @@ use std::collections::HashMap;
 
 use database::ddb::DatabaseError;
 use errors::ApiError;
-use types::account::entities::{Account, AuthFactor, FullAccount, SoftwareAccount};
+use types::account::entities::{Account, AuthFactor, FullAccount, SoftwareAccount, Fido2Credential};
 use types::account::identifiers::AccountId;
 use types::account::PubkeysToAccount;
 
 use super::{FetchAccountInput, Service};
 use crate::error::AccountError;
 use crate::service::FetchAccountByAuthKeyInput;
+
+impl FetchAccountByAuthKeyInput {
+    pub fn new_with_credential_id(credential_id: String) -> Self {
+        Self { 
+            credential_id,
+            ..Default::default()
+        }
+    }
+}
 
 impl Service {
     pub async fn fetch_account(
@@ -32,11 +41,30 @@ impl Service {
         &self,
         input: FetchAccountByAuthKeyInput,
     ) -> Result<PubkeysToAccount, ApiError> {
-        self.account_repo
-            .fetch_account_by_auth_pubkey(input.pubkey, AuthFactor::Hw)
-            .await
-            .map(Into::into)
-            .map_err(Into::into)
+        if let Some(pubkey) = input.pubkey {
+            self.account_repo
+                .fetch_account_by_auth_pubkey(pubkey, AuthFactor::Hw)
+                .await
+                .map(Into::into)
+                .map_err(Into::into)
+        } else {
+            Err(ApiError::GenericBadRequest("Missing pubkey".to_string()))
+        }
+    }
+    
+    pub async fn fetch_account_id_by_fido2_credential_id(
+        &self,
+        input: FetchAccountByAuthKeyInput,
+    ) -> Result<PubkeysToAccount, ApiError> {
+        if !input.credential_id.is_empty() {
+            self.account_repo
+                .fetch_account_by_fido2_credential_id(&input.credential_id)
+                .await
+                .map(Into::into)
+                .map_err(Into::into)
+        } else {
+            Err(ApiError::GenericBadRequest("Missing credential_id".to_string()))
+        }
     }
 
     pub async fn fetch_account_id_by_recovery_pubkey(

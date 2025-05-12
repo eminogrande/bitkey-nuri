@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{Display as StrumDisplay, EnumString};
 use time::{serde::rfc3339, OffsetDateTime};
 use utoipa::ToSchema;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use super::errors::AccountError;
 use crate::{
@@ -26,14 +27,14 @@ use crate::{
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone, Copy, ToSchema, StrumDisplay)]
 pub enum AuthFactor {
     App,
-    Hw,
+    Fido2, // Replacing Hw
     Recovery,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone, Copy, ToSchema, StrumDisplay)]
 pub enum Factor {
     App,
-    Hw,
+    Fido2, // Replacing Hw
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
@@ -41,6 +42,37 @@ pub enum KeyDomain {
     Spend,
     Auth,
     Config,
+}
+
+#[derive(Deserialize, Serialize, PartialEq, Debug, Clone, ToSchema)]
+pub struct Fido2Credential {
+    pub credential_id: String,
+    pub public_key: Vec<u8>,
+    pub aaguid: String, // Authenticator Attestation GUID
+    pub sign_count: u32,
+    pub user_handle: String,
+    pub rp_id: String, // Relying Party ID
+}
+
+impl Fido2Credential {
+    #[must_use]
+    pub fn new(
+        credential_id: String,
+        public_key: Vec<u8>,
+        aaguid: String,
+        sign_count: u32,
+        user_handle: String,
+        rp_id: String,
+    ) -> Self {
+        Self {
+            credential_id,
+            public_key,
+            aaguid,
+            sign_count,
+            user_handle,
+            rp_id,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
@@ -191,7 +223,8 @@ impl CommsVerificationClaim {
 pub struct FullAccountAuthKeysPayload {
     // TODO: [W-774] Update visibility of struct after migration
     pub app: PublicKey,
-    pub hardware: PublicKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fido2: Option<Fido2Credential>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<PublicKey>,
 }
@@ -213,7 +246,8 @@ pub struct SoftwareAccountAuthKeysPayload {
 pub struct UpgradeLiteAccountAuthKeysPayload {
     // TODO: [W-774] Update visibility of struct after migration
     pub app: PublicKey,
-    pub hardware: PublicKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fido2: Option<Fido2Credential>,
 }
 
 #[derive(Deserialize, Serialize, PartialEq, Debug, ToSchema, Clone)]
@@ -223,7 +257,7 @@ pub struct SpendingKeysetRequest {
     #[serde(with = "bdk_utils::serde::descriptor_key")]
     pub app: DescriptorPublicKey,
     #[serde(with = "bdk_utils::serde::descriptor_key")]
-    pub hardware: DescriptorPublicKey,
+    pub fido2: DescriptorPublicKey,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -279,8 +313,8 @@ pub struct FullAccount {
     pub spending_limit: Option<SpendingLimit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application_auth_pubkey: Option<PublicKey>,
-    // Hardware Authentication Key
-    pub hardware_auth_pubkey: PublicKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fido2_credential: Option<Fido2Credential>,
     #[serde(default)]
     pub auth_keys: HashMap<AuthKeysId, FullAccountAuthKeys>,
     #[serde(flatten)]
@@ -298,7 +332,7 @@ impl FullAccount {
         properties: AccountProperties,
     ) -> Self {
         let now = OffsetDateTime::now_utc();
-        let hardware_auth_pubkey = auth.hardware_pubkey;
+        let fido2_credential = auth.fido2_credential.clone();
         let application_auth_pubkey = Some(auth.app_pubkey);
         let recovery_auth_pubkey = auth.recovery_pubkey;
         Self {
@@ -308,7 +342,7 @@ impl FullAccount {
             spending_keysets: HashMap::from([(active_keyset_id, spending)]),
             spending_limit: None,
             application_auth_pubkey,
-            hardware_auth_pubkey,
+            fido2_credential,
             common_fields: CommonAccountFields {
                 active_auth_keys_id,
                 touchpoints: vec![],
@@ -417,7 +451,7 @@ impl LiteAccount {
             spending_keysets: HashMap::from([(keyset_id, spending_keyset)]),
             spending_limit: None,
             application_auth_pubkey: Some(auth_keys.app_pubkey),
-            hardware_auth_pubkey: auth_keys.hardware_pubkey,
+            fido2_credential: auth_keys.fido2_credential.clone(),
             auth_keys: HashMap::from([(auth_keys_id.clone(), auth_keys)]),
             common_fields: CommonAccountFields {
                 active_auth_keys_id: auth_keys_id,

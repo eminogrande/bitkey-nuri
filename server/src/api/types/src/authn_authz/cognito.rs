@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 
 const APP_USER_SUFFIX: &str = "-app";
 const HARDWARE_USER_SUFFIX: &str = "-hardware";
+const FIDO2_USER_SUFFIX: &str = "-fido2";
 const RECOVERY_USER_SUFFIX: &str = "-recovery";
 
 #[derive(Debug, Error)]
@@ -56,6 +57,7 @@ impl fmt::Display for CognitoUsername {
 pub enum CognitoUser {
     App(AccountId),
     Hardware(AccountId),
+    Fido2(AccountId),
     Recovery(AccountId),
 }
 
@@ -64,6 +66,7 @@ impl CognitoUser {
         match self {
             CognitoUser::App(id) => id.to_owned(),
             CognitoUser::Hardware(id) => id.to_owned(),
+            CognitoUser::Fido2(id) => id.to_owned(),
             CognitoUser::Recovery(id) => id.to_owned(),
         }
     }
@@ -74,6 +77,10 @@ impl CognitoUser {
 
     pub fn is_hardware(&self, account_id: &AccountId) -> bool {
         matches!(self, CognitoUser::Hardware(id) if id == account_id)
+    }
+
+    pub fn is_fido2(&self, account_id: &AccountId) -> bool {
+        matches!(self, CognitoUser::Fido2(id) if id == account_id)
     }
 
     pub fn is_recovery(&self, account_id: &AccountId) -> bool {
@@ -93,6 +100,9 @@ impl From<&CognitoUser> for CognitoUsername {
             CognitoUser::App(id) => CognitoUsername::new(format!("{}{}", id, APP_USER_SUFFIX)),
             CognitoUser::Hardware(id) => {
                 CognitoUsername::new(format!("{}{}", id, HARDWARE_USER_SUFFIX))
+            }
+            CognitoUser::Fido2(id) => {
+                CognitoUsername::new(format!("{}{}", id, FIDO2_USER_SUFFIX))
             }
             CognitoUser::Recovery(id) => {
                 CognitoUsername::new(format!("{}{}", id, RECOVERY_USER_SUFFIX))
@@ -115,6 +125,12 @@ impl FromStr for CognitoUser {
             let parts: Vec<&str> = value.split(HARDWARE_USER_SUFFIX).collect();
             let account_id = AccountId::from_str(parts[0])?;
             return Ok(CognitoUser::Hardware(account_id));
+        }
+
+        if value.ends_with(FIDO2_USER_SUFFIX) {
+            let parts: Vec<&str> = value.split(FIDO2_USER_SUFFIX).collect();
+            let account_id = AccountId::from_str(parts[0])?;
+            return Ok(CognitoUser::Fido2(account_id));
         }
 
         if value.ends_with(RECOVERY_USER_SUFFIX) {

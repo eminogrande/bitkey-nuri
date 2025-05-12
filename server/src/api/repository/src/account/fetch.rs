@@ -5,13 +5,13 @@ use database::ddb::{
     try_from_item, try_to_attribute_val, DatabaseError, FetchBatchTrait, ReadRequest, Repository,
 };
 use tracing::{event, instrument, Level};
-use types::account::entities::{Account, AuthFactor};
+use types::account::entities::{Account, AuthFactor, Fido2Credential};
 use types::account::identifiers::AccountId;
 
 use super::{
     AccountRepository, APPLICATION_IDX_PARTITION_KEY, APPLICATION_TO_ACCOUNT_IDX,
-    HW_IDX_PARTITION_KEY, HW_TO_ACCOUNT_IDX, PARTITION_KEY, RECOVERY_AUTHKEY_IDX_PARTITION_KEY,
-    RECOVERY_AUTHKEY_TO_ACCOUNT_IDX,
+    FIDO2_IDX_PARTITION_KEY, FIDO2_TO_ACCOUNT_IDX, HW_IDX_PARTITION_KEY, HW_TO_ACCOUNT_IDX, 
+    PARTITION_KEY, RECOVERY_AUTHKEY_IDX_PARTITION_KEY, RECOVERY_AUTHKEY_TO_ACCOUNT_IDX,
 };
 
 impl AccountRepository {
@@ -102,6 +102,55 @@ impl AccountRepository {
     ) -> Result<Account, DatabaseError> {
         let database_object = self.get_database_object();
         self.fetch_optional_account_by_auth_pubkey(pubkey, key_factor)
+            .await?
+            .ok_or(DatabaseError::ObjectNotFound(database_object))
+    }
+    
+    pub async fn fetch_optional_account_by_fido2_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<Account>, DatabaseError> {
+        let table_name = self.get_table_name().await?;
+        let database_object = self.get_database_object();
+
+        let item_output = self
+            .get_connection()
+            .client
+            .query()
+            .table_name(table_name)
+            .index_name(FIDO2_TO_ACCOUNT_IDX)
+            .key_condition_expression("#P = :credential_id")
+            .expression_attribute_names("#P", FIDO2_IDX_PARTITION_KEY)
+            .expression_attribute_values(
+                ":credential_id",
+                try_to_attribute_val(credential_id.to_string(), database_object)?,
+            )
+            .send()
+            .await
+            .map_err(|err| {
+                let service_err = err.into_service_error();
+                event!(
+                    Level::ERROR,
+                    "Could not fetch account by FIDO2 credential ID: {service_err:?} with message: {:?}",
+                    service_err.message()
+                );
+                DatabaseError::FetchError(database_object)
+            })?;
+
+        let item = item_output.items().first();
+        if let Some(account_item) = item {
+            try_from_item(account_item.clone(), database_object)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub async fn fetch_account_by_fido2_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Account, DatabaseError> {
+        let database_object = self.get_database_object();
+        self.fetch_optional_account_by_fido2_credential_id(credential_id)
             .await?
             .ok_or(DatabaseError::ObjectNotFound(database_object))
     }

@@ -20,6 +20,7 @@ use errors::ApiError;
 use feature_flags::service::Service as FeatureFlagsService;
 use http_server::swagger::{SwaggerEndpoint, Url};
 use types::account::identifiers::AccountId;
+use types::account::entities::Fido2Credential;
 use wsm_rust_client::{SigningService, WsmClient};
 
 use crate::debug_utils::log_debug_info_if_applicable;
@@ -37,17 +38,12 @@ impl RouterBuilder for RouteState {
     fn unauthed_router(&self) -> Router {
         Router::new()
             .route("/api/recovery-auth", post(authenticate_with_recovery))
-            .route("/api/hw-auth", post(authenticate_with_hardware))
+            .route("/api/fido2-auth", post(authenticate_with_fido2)) // New endpoint replacing hw-auth
+            .route("/api/fido2-register", post(register_fido2_credential)) // New endpoint for registration
             .route("/api/authenticate", post(authenticate))
             .route("/api/authenticate/tokens", post(get_tokens))
-            .route(
-                "/api/attestation/wsm",
-                get(acquire_wsm_attestation_document),
-            )
-            .route(
-                "/api/secure-channel/initiate",
-                post(initiate_wsm_secure_channel),
-            )
+            // .route("/api/attestation/wsm", get(acquire_wsm_attestation_document))
+            // .route("/api/secure-channel/initiate", post(initiate_wsm_secure_channel))
             .route_layer(FACTORY.route_layer(FACTORY_NAME.to_owned()))
             .with_state(self.to_owned())
     }
@@ -66,17 +62,18 @@ impl From<RouteState> for SwaggerEndpoint {
 #[openapi(
     paths(
         authenticate,
-        authenticate_with_hardware,
+        authenticate_with_fido2,
+        register_fido2_credential,
         authenticate_with_recovery,
         get_tokens,
-        acquire_wsm_attestation_document,
-        initiate_wsm_secure_channel,
     ),
     components(
         schemas(
             AuthRequestKey,
-            AuthenticateWithHardwareRequest,
-            AuthenticateWithHardwareResponse,
+            AuthenticateWithFido2Request,
+            AuthenticateWithFido2Response,
+            Fido2RegistrationRequest,
+            Fido2RegistrationResponse,
             AuthenticateWithRecoveryAuthkeyRequest,
             AuthenticateWithRecoveryResponse,
             AuthenticationRequest,
@@ -85,7 +82,6 @@ impl From<RouteState> for SwaggerEndpoint {
             CognitoUsername,
             GetTokensRequest,
             GetTokensResponse,
-            GetAttestationDocumentResponse,
         ),
     ),
     tags(
@@ -174,22 +170,47 @@ pub async fn authenticate_with_recovery(
 
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct AuthenticateWithHardwareRequest {
-    pub hw_auth_pubkey: PublicKey,
+pub struct AuthenticateWithFido2Request {
+    pub credential_id: String,
+    pub authenticator_data: String,   // Base64 encoded authenticator data
+    pub signature: String,            // Base64 encoded signature
+    pub client_data_json: String,     // Base64 encoded client data JSON
 }
 
-impl From<AuthenticateWithHardwareRequest> for AuthRequestKey {
-    fn from(request: AuthenticateWithHardwareRequest) -> Self {
-        AuthRequestKey::HwPubkey(request.hw_auth_pubkey)
+impl From<AuthenticateWithFido2Request> for AuthRequestKey {
+    fn from(request: AuthenticateWithFido2Request) -> Self {
+        let credential = Fido2Credential {
+            credential_id: request.credential_id,
+            public_key: Vec::new(), // Will be populated during verification
+            aaguid: String::new(),
+            sign_count: 0,
+            user_handle: String::new(),
+            rp_id: String::new(),
+        };
+        AuthRequestKey::Fido2Credential(credential)
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub struct AuthenticateWithHardwareResponse {
+pub struct AuthenticateWithFido2Response {
     pub account_id: AccountId,
     pub challenge: String,
     pub session: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Fido2RegistrationRequest {
+    pub attestation_response: String, // Base64 encoded attestation response
+    pub client_data_json: String,     // Base64 encoded client data JSON
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct Fido2RegistrationResponse {
+    pub credential_id: String,
+    pub public_key: String, // Base64 encoded public key
 }
 
 #[instrument(
@@ -198,21 +219,21 @@ pub struct AuthenticateWithHardwareResponse {
 )]
 #[utoipa::path(
     post,
-    path = "/api/hw-auth",
-    request_body = AuthenticateWithHardwareRequest,
+    path = "/api/fido2-auth",
+    request_body = AuthenticateWithFido2Request,
     responses(
-        (status = 200, description = "Authentication Challenge and Session", body=AuthenticateWithHardwareResponse),
+        (status = 200, description = "Authentication Challenge and Session", body=AuthenticateWithFido2Response),
         (status = 404, description = "Account not found")
     ),
 )]
-pub async fn authenticate_with_hardware(
+pub async fn authenticate_with_fido2(
     State(account_service): State<AccountService>,
     State(user_pool_service): State<UserPoolService>,
     State(feature_flags_service): State<FeatureFlagsService>,
     headers: HeaderMap,
-    Json(request): Json<AuthenticateWithHardwareRequest>,
-) -> Result<Json<AuthenticateWithHardwareResponse>, ApiError> {
-    let pubkey = request.hw_auth_pubkey;
+    Json(request): Json<AuthenticateWithFido2Request>,
+) -> Result<Json<AuthenticateWithFido2Response>, ApiError> {
+    let credential_id = request.credential_id.clone();
 
     if let Some(app_installation_id) = headers
         .get(APP_INSTALLATION_ID_HEADER_NAME)
@@ -226,30 +247,65 @@ pub async fn authenticate_with_hardware(
     }
 
     let pubkeys_to_account = account_service
-        .fetch_account_id_by_hw_pubkey(FetchAccountByAuthKeyInput { pubkey })
+        .fetch_account_id_by_fido2_credential_id(FetchAccountByAuthKeyInput { 
+            credential_id 
+        })
         .await?;
 
     tracing::Span::current().record("account_id", pubkeys_to_account.id.to_string());
 
-    let user = CognitoUser::Hardware(pubkeys_to_account.id.clone());
+    let user = CognitoUser::Fido2(pubkeys_to_account.id.clone());
     let auth_challenge = user_pool_service
         .initiate_auth_for_user(user, &pubkeys_to_account)
         .await
         .map_err(|e| {
-            let msg = "Failed to initiate authentication with pubkey";
+            let msg = "Failed to initiate authentication with FIDO2 credential";
             error!("{msg}: {e}");
             ApiError::GenericInternalApplicationError(msg.to_string())
         })?;
-    Ok(Json(AuthenticateWithHardwareResponse {
+    Ok(Json(AuthenticateWithFido2Response {
         account_id: pubkeys_to_account.id,
         challenge: auth_challenge.challenge,
         session: auth_challenge.session,
     }))
 }
 
+#[instrument(
+    fields(account_id),
+    skip(account_service)
+)]
+#[utoipa::path(
+    post,
+    path = "/api/fido2-register",
+    request_body = Fido2RegistrationRequest,
+    responses(
+        (status = 200, description = "FIDO2 Credential Registration", body=Fido2RegistrationResponse),
+        (status = 400, description = "Invalid registration data"),
+        (status = 500, description = "Internal server error")
+    ),
+)]
+pub async fn register_fido2_credential(
+    State(account_service): State<AccountService>,
+    Json(request): Json<Fido2RegistrationRequest>,
+) -> Result<Json<Fido2RegistrationResponse>, ApiError> {
+    // 1. Parse and verify the attestation response
+    // 2. Extract the credential ID and public key
+    // 4. Return the credential ID and public key
+    
+    let credential_id = BASE64.decode(&request.attestation_response)
+        .map_err(|_| ApiError::GenericBadRequest("Invalid attestation response".to_string()))?;
+    
+    let public_key = vec![0u8; 32]; // Placeholder
+    
+    Ok(Json(Fido2RegistrationResponse {
+        credential_id: BASE64.encode(&credential_id),
+        public_key: BASE64.encode(&public_key),
+    }))
+}
+
 #[derive(Serialize, Deserialize, Debug, ToSchema)]
 pub enum AuthRequestKey {
-    HwPubkey(PublicKey),
+    Fido2Credential(types::account::entities::Fido2Credential),
     AppPubkey(PublicKey),
     RecoveryPubkey(PublicKey),
 }
@@ -301,12 +357,14 @@ pub async fn authenticate(
     }
 
     let (requested_cognito_user, pubkeys_to_account) = match request.auth_request_key {
-        AuthRequestKey::HwPubkey(pubkey) => {
+        AuthRequestKey::Fido2Credential(credential) => {
             let pubkeys_to_account = account_service
-                .fetch_account_id_by_hw_pubkey(FetchAccountByAuthKeyInput { pubkey })
+                .fetch_account_id_by_fido2_credential_id(FetchAccountByAuthKeyInput { 
+                    credential_id: credential.credential_id 
+                })
                 .await?;
             (
-                CognitoUser::Hardware(pubkeys_to_account.id.clone()),
+                CognitoUser::Fido2(pubkeys_to_account.id.clone()),
                 pubkeys_to_account,
             )
         }
