@@ -4,7 +4,8 @@
   "description": "Demo client for FIDO2 authentication",
   "type": "module",
   "scripts": {
-    "start": "parcel index.html --port 8080"
+    "start": "parcel index.html --port 8080",
+    "build": "parcel build index.html"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^7.4.0"
